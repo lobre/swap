@@ -1,3 +1,18 @@
+// A lexer is a software program that performs lexical analysis.
+// Lexical analysis is the process of separating a stream of 
+// characters into different words, which in computer science we call 'tokens'.
+// When you read my answer you are performing the lexical operation 
+// of breaking the string of text at the space characters into multiple words.
+//
+// A parser goes one level further than the lexer and takes the tokens
+// produced by the lexer and tries to determine if proper sentences have 
+// been formed. Parsers work at the grammatical level,
+// lexers work at the word level.
+//
+// This lexer does not take the responsibility to parse the frontmatter or the 
+// markdown content. It just split it.
+//
+// TODO: take example on hugo parser/pageparser
 package main
 
 import "fmt"
@@ -5,29 +20,21 @@ import "fmt"
 // itemType identifies the type of lex items.
 type itemType int
 
-// TODO: should I use blackfriday to parse markdown?
+const eof = -1
+
 const (
 	itemError itemType = iota // error occured, value is text of error
 
-	itemLeftJson    // an opening '{'
-	itemLeftYaml    // a opening '---'
-	itemFrontmatter // content of frontmatter
-	itemRightJson   // a closing '}'
-	itemRightYaml   // a closing '---'
-	itemH1          // markdown '#' title
-	itemH2          // markdown '##' title
-	itemH3          // markdown '###' title
-	itemH4          // markdown '####' title
-	itemH5          // markdown '#####' title
-	itemH6          // markdown '######' title
-	itemLink        // markdown link
+	itemOpenJson    // an opening '{'
+	itemCloseJson   // a closing '}'
+	itemYamlDelim   // '---'
 	itemText        // plain text
 	itemEOF
 )
 
 // item represents a token returned from the scanner
 type item struct {
-	typ itemType // Type, such as itemNumber.
+	typ itemType // Type, such as itemText.
 	val string   // Value, such as "23.2".
 }
 
@@ -86,8 +93,56 @@ func (l *lexer) run() {
 	close(l.items) // No more tokens will be delivered.
 }
 
-// emit pases an item back to the client.
+// emit passes an item back to the client.
 func (l *lexer) emit(t itemType) {
 	l.items <- item{t, l.input[l.start:l.pos]}
 	l.start = l.pos
+}
+
+// next returns the next rune in the input.
+func (l *lexer) next() rune {
+	if int(l.pos) >= len(l.input) {
+		l.width = 0
+		return eof
+	}
+	r, l.width := utf8.DecodeRuneInString(l.input[l.pos:])
+	l.pos += l.width
+	return r
+}
+
+const openJson = "{"
+const yamlDelim = "---"
+
+func lexText(l *lexer) stateFn {
+    for {
+        if strings.HasPrefix(l.input[l.pos:], yamlDelim) {
+           return lexYamlDelim 
+        }
+    }
+}
+
+func lexOpenYaml(l *lexer) stateFn {
+    l.pos += len(yamlDelim)
+    l.emit(itemYamlDelim)
+    return lexInsideYaml
+}
+
+func lexInsideYaml(l *lexer) stateFn {
+    for {
+        if strings.HasPrefix(l.input[l.pos:], yamlDelim) {
+            return lexCloseYaml
+        }
+        switch r := l.next(); {
+        case r == eof:
+            return l.errorf("unclosed yaml frontmatter")
+
+        }
+
+    }
+}
+
+func lexCloseYaml(l *lexer) stateFn {
+    l.pos += len(yamlDelim)
+    l.emit(itemYamlDelim)
+    return lexContent
 }
