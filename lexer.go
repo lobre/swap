@@ -11,11 +11,13 @@
 //
 // This lexer does not take the responsibility to parse the frontmatter or the 
 // markdown content. It just split it.
-//
-// TODO: take example on hugo parser/pageparser
 package main
 
-import "fmt"
+import (
+    "bytes"
+    "fmt"
+    "unicode/utf8"
+)
 
 // itemType identifies the type of lex items.
 type itemType int
@@ -43,10 +45,10 @@ func (i item) String() string {
 	case itemEOF:
 		return "EOF"
 	case itemError:
-		return i.val
+		return string(i.val)
 	}
-	if len(i.val) > 10 {
-		return fmt.Sprintf("%.10q...", i.val)
+	if len(i.val) > 20 {
+		return fmt.Sprintf("%.20q...", i.val)
 	}
 	return fmt.Sprintf("%q", i.val)
 }
@@ -67,7 +69,6 @@ type lexer struct {
 // starting the lexer
 func lex(input []byte) (*lexer, chan item) {
 	l := &lexer{
-		name:  name,
 		input: input,
 		items: make(chan item),
 	}
@@ -93,24 +94,23 @@ func (l *lexer) emit(t itemType) {
 // error returns an error token and terminates the scan
 // by passing back a nil pointer that will be the next
 // state, terminating l.run.
-func (l *lexer) errorf(format string, args ...interface{})
-  stateFunc {
+func (l *lexer) errorf(format string, args ...interface{}) stateFunc {
     l.items <- item{
         itemError,
-        fmt.Sprintf(format, args...),
+        []byte(fmt.Sprintf(format, args...)),
     }
     return nil
 }
 
 // next returns the next rune in the input.
-func (l *lexer) next() rune {
+func (l *lexer) next() (r rune) {
 	if int(l.pos) >= len(l.input) {
 		l.width = 0
 		return eof
 	}
-	r, l.width := utf8.DecodeRuneInString(l.input[l.pos:])
+	r, l.width = utf8.DecodeRune(l.input[l.pos:])
 	l.pos += l.width
-	return r
+	return r 
 }
 
 // backup steps back one rune.
@@ -120,10 +120,10 @@ func (l *lexer) backup() {
 
 // peek returns but does not consume
 // the next rune in the input.
-func (l *lexer) peek() int {
-    rune := l.next()
+func (l *lexer) peek() rune {
+    r := l.next()
     l.backup()
-    return rune
+    return r
 }
 
 // ignore skips over the pending input before this point.
@@ -146,8 +146,8 @@ func (l *lexer) consumeCRLF() bool {
 }
 
 // hasPrefix check if the next string matches the prefix.
-func (l *lexer) hasPrefix(prefix string) bool {
-	return strings.HasPrefix(l.input[l.pos:], prefix)
+func (l *lexer) hasPrefix(prefix []byte) bool {
+	return bytes.HasPrefix(l.input[l.pos:], prefix)
 }
 
 func lexStart(l *lexer) stateFunc {
@@ -172,16 +172,21 @@ func lexFrontmatterTOML(l *lexer) stateFunc {
 		}
 	}
 
+    // ignore starting delimiter
+    l.consumeCRLF()
+    l.ignore()
+
     for {
-        r = l.next()
+        r := l.next()
         if r == eof {
             return l.errorf("EOF looking for end TOML front matter delimiter")
         }
 
-        if isEndOfLine(r) && hasPrefix("+++") {
+        if isEndOfLine(r) && l.hasPrefix([]byte("+++")) {
             l.emit(itemFrontmatterTOML)
             l.pos += 3
             l.consumeCRLF()
+            // ignore ending delimiter
             l.ignore()
             break
         }
@@ -197,16 +202,21 @@ func lexFrontmatterYAML(l *lexer) stateFunc {
 		}
 	}
 
+    // ignore starting delimiter
+    l.consumeCRLF()
+    l.ignore()
+
     for {
-        r = l.next()
+        r := l.next()
         if r == eof {
             return l.errorf("EOF looking for end YAML front matter delimiter")
         }
 
-        if isEndOfLine(r) && hasPrefix("---") {
+        if isEndOfLine(r) && l.hasPrefix([]byte("---")) {
             l.emit(itemFrontmatterYAML)
             l.pos += 3
             l.consumeCRLF()
+            // ignore ending delimiter
             l.ignore()
             break
         }

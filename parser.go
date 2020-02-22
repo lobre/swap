@@ -1,18 +1,23 @@
 package main
 
+import (
+    "io"
+    "io/ioutil"
+    "fmt"
+)
+
 func parse(r io.Reader) error {
 	b, err := ioutil.ReadAll(r)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read note content")
+        return fmt.Errorf("failed to read note content: %w", err)
 	}
 
-    l, items := lex(b)
-    for {
-        item := <-items
+    _, items := lex(b)
+    for item := range items {
         if item.typ == itemEOF {
             break
         }
-        fmt.Println(item.val)
+        fmt.Println(item)
     }
     return nil
 }
